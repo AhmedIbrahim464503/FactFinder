@@ -26,8 +26,25 @@ MANIFEST
 venv/
 env/
 ENV/
+# Environment Variables
 .env
-.venv
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+*.env.*
+
+# Security keys and certificates
+*.pem
+*.key
+*.cert
+*.crt
+*.p12
+*.pfx
+secrets.yaml
+secrets.json
+config.json
 
 # Node.js
 node_modules/
