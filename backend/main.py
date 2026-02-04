@@ -24,14 +24,44 @@ class ResearchRequest(BaseModel):
 def read_root():
     return {"status": "FactBinder Backend Running"}
 
+from fastapi.responses import StreamingResponse
+import json
+
 @app.post("/research")
 async def start_research(request: ResearchRequest):
-    # This is a placeholder for triggering the LangGraph workflow
-    # In a real scenario, we might want to return a job ID and stream results
-    # For now, we'll await the result (might be slow) or just return structure
-    
-    result = await research_workflow.ainvoke({"topic": request.topic})
-    return result
+    async def event_stream():
+        # Stream events from LangGraph
+        async for event in research_workflow.astream({"topic": request.topic}):
+            # Each event is a dictionary of the state update
+            # e.g. {'retrieve': {'documents': [...]}} or {'process': {'summary': ..., 'graph_data': ...}}
+            
+            for node_name, state_update in event.items():
+                data = {
+                    "node": node_name,
+                    "update": {k: str(v) if k == 'documents' else v for k, v in state_update.items()}
+                }
+                # Sanitize documents for network (too large to send full objects sometimes, but here we send all)
+                # Actually, specialized handling:
+                if node_name == "retrieve":
+                     yield f"data: {json.dumps({'type': 'status', 'message': 'Documents Retrieved'})}\n\n"
+                     yield f"data: {json.dumps({'type': 'documents', 'data': [d.dict() for d in state_update['documents']]})}\n\n"
+                
+                elif node_name == "process":
+                     yield f"data: {json.dumps({'type': 'status', 'message': 'Processing Complete'})}\n\n"
+                     yield f"data: {json.dumps({'type': 'result', 'summary': state_update['summary'], 'graph_data': state_update.get('graph_data')})}\n\n"
+                     
+                     # Save to history
+                     from database import save_research_history
+                     save_research_history(request.topic, state_update['summary'], state_update.get('graph_data'))
+
+        yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+@app.get("/history")
+def read_history():
+    from database import get_research_history
+    return get_research_history()
 
 if __name__ == "__main__":
     import uvicorn

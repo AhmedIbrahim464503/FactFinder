@@ -86,3 +86,46 @@ def summarize_documents(docs: list[Document]) -> str:
     
     chain = prompt | llm | StrOutputParser()
     return chain.invoke({"text": combined_text})
+
+def extract_knowledge_graph(docs: list[Document]) -> dict:
+    """
+    Extracts a Knowledge Graph (nodes and edges) from documents using Gemini.
+    """
+    if not docs:
+        return {"nodes": [], "links": []}
+    
+    # Combined text for KG extraction
+    combined_text = "\n\n".join([f"{d.page_content[:2000]}" for d in docs])
+
+    prompt = ChatPromptTemplate.from_template(
+        """You are an expert at extracting knowledge graphs.
+        Analyze the following text and extract key entities and their relationships.
+        
+        Return the result EXACTLY as a JSON object with the following structure:
+        {{
+            "nodes": [
+                {{"id": "Entity Name", "group": "Type (e.g., Concept, Person, Technology)"}}
+            ],
+            "links": [
+                {{"source": "Entity Name", "target": "Entity Name", "value": "Relationship description"}}
+            ]
+        }}
+        
+        Do not add any markdown formatting (like ```json). Just return the raw JSON string.
+        Limit to the top 15 most important entities and relationships.
+        
+        Text:
+        {text}
+        """
+    )
+    
+    chain = prompt | llm | StrOutputParser()
+    try:
+        result_str = chain.invoke({"text": combined_text})
+        # Clean up if Gemini wraps in markdown
+        result_str = result_str.strip().replace("```json", "").replace("```", "")
+        import json
+        return json.loads(result_str)
+    except Exception as e:
+        print(f"KG Extraction Error: {e}")
+        return {"nodes": [], "links": []}
